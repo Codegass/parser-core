@@ -7,13 +7,28 @@ version = '1.0-SNAPSHOT'
 
 repositories {
     mavenCentral()
+    maven { url 'https://repo.eclipse.org/content/repositories/eclipse-releases/' }
+    maven { url 'https://repo.gradle.org/gradle/libs-releases' }
 }
 
 dependencies {
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    implementation 'org.eclipse.jdt:org.eclipse.jdt.core:3.37.0'
+    implementation 'org.eclipse.platform:org.eclipse.core.resources:3.22.0'
+    implementation 'commons-io:commons-io:2.16.1'
+    implementation 'org.apache.commons:commons-lang3:3.14.0'
+    implementation 'org.dom4j:dom4j:2.1.4'
+    implementation 'org.gradle:gradle-tooling-api:8.5'
+    runtimeOnly 'org.slf4j:slf4j-simple:2.0.9'  // Required by Gradle Tooling API
 }
 
 test {
     useJUnitPlatform()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
 }
