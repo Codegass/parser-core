@@ -35,14 +35,40 @@ public class MavenDetector extends AbstractBuildToolDetector {
             // Start building the configuration
             ParserConfig.Builder configBuilder = createBaseConfig();
 
-            // Add compiled classes directory
+            // Add compiled classes directory (main)
             Path targetClasses = projectRoot.resolve("target/classes");
-            configBuilder.classpath(targetClasses.toString());
+            if (targetClasses.toFile().exists()) {
+                configBuilder.classpath(targetClasses.toString());
+            }
 
-            // Add resources directory
-            Path resources = projectRoot.resolve("src/main/resources");
-            if (resources.toFile().exists()) {
-                configBuilder.classpath(resources.toString());
+            // Add compiled test classes directory
+            Path targetTestClasses = projectRoot.resolve("target/test-classes");
+            if (targetTestClasses.toFile().exists()) {
+                configBuilder.classpath(targetTestClasses.toString());
+            }
+
+            // Add main resources directory
+            Path mainResources = projectRoot.resolve("src/main/resources");
+            if (mainResources.toFile().exists()) {
+                configBuilder.classpath(mainResources.toString());
+            }
+
+            // Add test resources directory
+            Path testResources = projectRoot.resolve("src/test/resources");
+            if (testResources.toFile().exists()) {
+                configBuilder.classpath(testResources.toString());
+            }
+
+            // Add main source directory
+            Path mainSources = projectRoot.resolve("src/main/java");
+            if (mainSources.toFile().exists()) {
+                configBuilder.sourcepath(mainSources.toString());
+            }
+
+            // Add test source directory
+            Path testSources = projectRoot.resolve("src/test/java");
+            if (testSources.toFile().exists()) {
+                configBuilder.sourcepath(testSources.toString());
             }
 
             // Add dependencies from Maven local repository
