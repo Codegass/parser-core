@@ -12,7 +12,7 @@ public class Main {
     public static void main(String[] args) {
         System.out.println("Testing parser-core library...");
 
-        Path projectRoot = Paths.get("/Users/chenhaowei/Documents/github/commons-cli");
+        Path projectRoot = Paths.get("/Users/chenhaowei/Documents/research-related-data/commons-cli");
 
         ResearchParser facade = new ResearchParser();
 
