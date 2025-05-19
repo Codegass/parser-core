@@ -14,6 +14,8 @@ repositories {
 dependencies {
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.mockito:mockito-core:5.17.0'
+    testImplementation 'org.mockito:mockito-junit-jupiter:5.17.0'
     implementation 'org.eclipse.jdt:org.eclipse.jdt.core:3.37.0'
     implementation 'org.eclipse.platform:org.eclipse.core.resources:3.22.0'
     implementation 'commons-io:commons-io:2.16.1'
@@ -23,8 +25,65 @@ dependencies {
     runtimeOnly 'org.slf4j:slf4j-simple:2.0.9'  // Required by Gradle Tooling API
 }
 
+ext {
+    testProjectDir = project.layout.buildDirectory.dir("test-projects/commons-cli")
+    testProjectGitUrl = "git@github.com:Codegass/commons-cli.git"
+    testProjectGitBranch = "master"
+    testProjectClonedSuccessfully = false
+}
+
+task cloneTestProject(type: Exec) {
+    description = "Clones the commons-cli project for integration testing."
+    group = "build setup"
+
+    def targetDir = project.ext.testProjectDir.get().asFile
+    workingDir project.rootDir // Execute in the root of the current project
+
+    // Command to clone the repository
+    commandLine 'git', 'clone', '--depth', '1', '--branch', project.ext.testProjectGitBranch, project.ext.testProjectGitUrl, targetDir.absolutePath
+
+    // Only run if the target directory does not exist
+    onlyIf { !targetDir.exists() || targetDir.list().length == 0 }
+
+    doLast {
+        if (targetDir.exists() && targetDir.isDirectory()) {
+            // A simple check, like for pom.xml
+            if (new File(targetDir, "pom.xml").exists()) {
+                project.ext.testProjectClonedSuccessfully = true
+                println "Test project commons-cli cloned successfully to ${targetDir}"
+            } else {
+                project.ext.testProjectClonedSuccessfully = false
+                println "Test project commons-cli cloned, but pom.xml not found in ${targetDir}. Marking as not successful."
+                // Optionally, clean up if cloning seems to have produced an invalid state
+                // project.delete(targetDir)
+            }
+        } else {
+            project.ext.testProjectClonedSuccessfully = false
+            println "Failed to clone test project commons-cli."
+        }
+    }
+
+    // Make this task ignore failures so that subsequent tasks (like test) can decide to skip
+    ignoreExitValue true
+
+    // Ensure the parent directory for test-projects exists
+    doFirst {
+        targetDir.getParentFile().mkdirs()
+    }
+}
+
+// Clean the cloned project when 'clean' task is run
+clean.doLast {
+    project.delete(project.ext.testProjectDir)
+}
+
 test {
     useJUnitPlatform()
+    dependsOn cloneTestProject // Ensure project is cloned before tests run
+    // Removed JVM args related to --add-opens and net.bytebuddy.experimental
+    // Tests can check project.ext.testProjectClonedSuccessfully if needed,
+    // or more simply, check for file existence like pom.xml.
+    // JUnit Assumptions are a better way to skip tests from within the test code.
 }
 
 java {
