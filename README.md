@@ -50,3 +50,11 @@ To include this project as a dependency in your Gradle project, you can use [Jit
     *   To use a specific commit hash: `implementation("com.github.Codegass:parser-core:YOUR_COMMIT_HASH")`
 
     **Note:** Using `-SNAPSHOT` versions will always pull the latest commit from the specified branch. For stable builds, it's recommended to use tags or specific commit hashes. JitPack uses the `git@github.com:Codegass/parser-core.git` URL you provided implicitly when you specify `com.github.Codegass:parser-core`. 
+
+3.  **Import classes in your code**
+
+    When using classes from this library, use the following package structure in your import statements:
+
+    ```java
+    import edu.stevens.swe.research.parser.core.*;
+    ```

@@ -2,7 +2,7 @@ plugins {
     id 'java'
 }
 
-group = 'edu.stevens'
+group = 'edu.stevens.swe.research.parser.core'
 version = '1.0-SNAPSHOT'
 
 repositories {
