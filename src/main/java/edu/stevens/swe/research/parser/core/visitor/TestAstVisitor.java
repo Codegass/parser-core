@@ -1,6 +1,6 @@
-package edu.stevens.parser.visitor;
+package edu.stevens.swe.research.parser.core.visitor;
 
-import edu.stevens.parser.model.TestCaseInfo;
+import edu.stevens.swe.research.parser.core.model.TestCaseInfo;
 import org.eclipse.jdt.core.dom.*;
 
 import java.io.File;
@@ -49,6 +49,7 @@ public class TestAstVisitor extends ASTVisitor {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public boolean visit(MethodDeclaration node) {
         if (currentClassName != null && Modifier.isPublic(node.getModifiers()) && !node.isConstructor()) {
             List<IExtendedModifier> modifiers = node.modifiers();

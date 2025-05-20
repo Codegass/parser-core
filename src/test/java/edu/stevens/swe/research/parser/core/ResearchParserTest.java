@@ -1,10 +1,9 @@
-package edu.stevens.parser;
+package edu.stevens.swe.research.parser.core;
 
-import edu.stevens.parser.core.ASTProcessor;
-import edu.stevens.parser.core.ParserConfig;
-import edu.stevens.parser.model.TestCaseInfo;
-import edu.stevens.parser.utils.BuildToolDetectorFactory;
-import edu.stevens.parser.utils.exceptions.ProjectDetectionException;
+import edu.stevens.swe.research.parser.core.core.ParserConfig;
+import edu.stevens.swe.research.parser.core.model.TestCaseInfo;
+import edu.stevens.swe.research.parser.core.utils.BuildToolDetectorFactory;
+import edu.stevens.swe.research.parser.core.utils.exceptions.ProjectDetectionException;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;

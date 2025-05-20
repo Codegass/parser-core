@@ -1,4 +1,4 @@
-package edu.stevens.parser.core;
+package edu.stevens.swe.research.parser.core.core;
 
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.dom.AST;

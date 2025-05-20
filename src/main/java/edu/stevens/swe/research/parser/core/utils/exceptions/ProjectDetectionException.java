@@ -1,4 +1,4 @@
-package edu.stevens.parser.utils.exceptions;
+package edu.stevens.swe.research.parser.core.utils.exceptions;
 
 public class ProjectDetectionException extends Exception {
     public ProjectDetectionException(String message) { super(message); }

@@ -1,7 +1,6 @@
-package edu.stevens.parser.utils;
+package edu.stevens.swe.research.parser.core.utils;
 
-import edu.stevens.parser.core.ParserConfig;
-import edu.stevens.parser.utils.exceptions.ProjectDetectionException;
+import edu.stevens.swe.research.parser.core.core.ParserConfig;
 
 import java.io.File;
 import java.nio.file.Files;
