@@ -1,6 +1,6 @@
-package edu.stevens.swe.research.parser.core.visitor;
+package edu.stevens.swe.research.java.parser.core.visitor;
 
-import edu.stevens.swe.research.parser.core.model.TestCaseInfo;
+import edu.stevens.swe.research.java.parser.core.model.TestCaseInfo;
 import org.eclipse.jdt.core.dom.*;
 
 import java.io.File;

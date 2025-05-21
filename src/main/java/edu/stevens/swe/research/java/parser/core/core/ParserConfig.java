@@ -1,4 +1,4 @@
-package edu.stevens.swe.research.parser.core.core;
+package edu.stevens.swe.research.java.parser.core.core;
 
 import java.util.ArrayList;
 import java.util.Arrays;

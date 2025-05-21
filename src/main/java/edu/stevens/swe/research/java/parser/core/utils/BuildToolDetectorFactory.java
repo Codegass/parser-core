@@ -1,7 +1,7 @@
-package edu.stevens.swe.research.parser.core.utils;
+package edu.stevens.swe.research.java.parser.core.utils;
 
-import edu.stevens.swe.research.parser.core.core.ParserConfig;
-import edu.stevens.swe.research.parser.core.utils.exceptions.ProjectDetectionException;
+import edu.stevens.swe.research.java.parser.core.core.ParserConfig;
+import edu.stevens.swe.research.java.parser.core.utils.exceptions.ProjectDetectionException;
 
 import java.nio.file.Path;
 import java.util.ArrayList;

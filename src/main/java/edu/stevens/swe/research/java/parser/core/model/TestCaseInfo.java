@@ -1,4 +1,4 @@
-package edu.stevens.swe.research.parser.core.model;
+package edu.stevens.swe.research.java.parser.core.model;
 
 public class TestCaseInfo {
     private final String className;

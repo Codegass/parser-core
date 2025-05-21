@@ -56,5 +56,5 @@ To include this project as a dependency in your Gradle project, you can use [Jit
     When using classes from this library, use the following package structure in your import statements:
 
     ```java
-    import edu.stevens.swe.research.parser.core.*;
+    import edu.stevens.swe.research.java.parser.core.*;
     ```

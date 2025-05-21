@@ -1,6 +1,6 @@
-package edu.stevens.swe.research.parser.core.utils;
+package edu.stevens.swe.research.java.parser.core.utils;
 
-import edu.stevens.swe.research.parser.core.core.ParserConfig;
+import edu.stevens.swe.research.java.parser.core.core.ParserConfig;
 
 import java.io.File;
 import java.nio.file.Files;
