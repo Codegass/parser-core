@@ -124,9 +124,12 @@ public class MavenDetector extends AbstractBuildToolDetector {
     private void addMavenDependencies(ParserConfig.Builder configBuilder, Document pomDoc, Map<String, String> mavenProperties) {
         // Get the local repository path
         Path localRepo = getMavenLocalRepository();
-        
+        System.out.println("DEBUG: Maven local repo path: " + localRepo);
+
         // Parse dependencies from pom.xml
         NodeList dependencies = pomDoc.getElementsByTagName("dependency");
+        System.out.println("DEBUG: Found " + dependencies.getLength() + " <dependency> tags.");
+
         for (int i = 0; i < dependencies.getLength(); i++) {
             Node depNode = dependencies.item(i);
             if (!(depNode instanceof Element)) {
@@ -142,20 +145,39 @@ public class MavenDetector extends AbstractBuildToolDetector {
 
             String rawVersion = getElementContent(dep, "version");
             String version = resolvePropertyValue(rawVersion, mavenProperties);
-            
-            if (groupId != null && artifactId != null && version != null) {
-                // Convert groupId to path format
-                String groupPath = groupId.replace('.', '/');
-                
-                // Construct the path to the JAR file
-                Path jarPath = localRepo.resolve(groupPath)
-                        .resolve(artifactId)
-                        .resolve(version)
-                        .resolve(artifactId + "-" + version + ".jar");
-                
-                if (jarPath.toFile().exists()) {
-                    configBuilder.classpath(jarPath.toString());
+
+            String scope = getElementContent(dep, "scope");
+            if (scope == null) {
+                scope = "compile"; // Default scope
+            }
+
+            System.out.println("DEBUG: Processing dependency: G:" + groupId + ", A:" + artifactId + ", V:" + version + ", S:" + scope);
+
+            // Include dependencies with scope 'compile', 'provided', or 'test'
+            // For AST parsing, especially of test files, 'test' scope dependencies like JUnit are essential.
+            if ("compile".equalsIgnoreCase(scope) || "provided".equalsIgnoreCase(scope) || "test".equalsIgnoreCase(scope)) {
+                if (groupId != null && artifactId != null && version != null) {
+                    // Convert groupId to path format
+                    String groupPath = groupId.replace('.', '/');
+                    
+                    // Construct the path to the JAR file
+                    Path jarPath = localRepo.resolve(groupPath)
+                            .resolve(artifactId)
+                            .resolve(version)
+                            .resolve(artifactId + "-" + version + ".jar");
+                    
+                    System.out.println("DEBUG: Attempting to add to classpath: " + jarPath);
+                    if (jarPath.toFile().exists()) {
+                        configBuilder.classpath(jarPath.toString());
+                        System.out.println("DEBUG: SUCCESS - Added to classpath: " + jarPath);
+                    } else {
+                        System.err.println("DEBUG: WARNING - JAR file not found: " + jarPath);
+                    }
+                } else {
+                    System.err.println("DEBUG: WARNING - Skipping dependency due to missing G, A, or V. Original G:" + rawGroupId + ", A:"+ rawArtifactId + ", V:"+ rawVersion);
                 }
+            } else {
+                System.out.println("DEBUG: Skipping dependency due to scope: " + scope + " (G:" + groupId + ", A:" + artifactId + ")");
             }
         }
     }
