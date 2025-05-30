@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'maven-publish'
 }
 
 group = 'edu.stevens.swe.research.java.parser.core'
@@ -89,5 +90,22 @@ test {
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.java
+            
+            groupId = project.group
+            artifactId = 'parser-core'
+            version = project.version
+            
+            pom {
+                name = 'Parser Core'
+                description = 'A Java parser core library for research purposes'
+            }
+        }
     }
 }

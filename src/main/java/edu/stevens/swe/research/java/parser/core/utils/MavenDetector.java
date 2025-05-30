@@ -5,12 +5,15 @@ import edu.stevens.swe.research.java.parser.core.utils.exceptions.ProjectDetecti
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
+import org.w3c.dom.Node;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MavenDetector extends AbstractBuildToolDetector {
     private static final String POM_FILE = "pom.xml";
@@ -71,8 +74,9 @@ public class MavenDetector extends AbstractBuildToolDetector {
                 configBuilder.sourcepath(testSources.toString());
             }
 
-            // Add dependencies from Maven local repository
-            addMavenDependencies(configBuilder, pomDoc);
+            // Add Maven dependencies from Maven local repository
+            Map<String, String> mavenProperties = parseProperties(pomDoc);
+            addMavenDependencies(configBuilder, pomDoc, mavenProperties);
 
             // Add JDK libs
             addJdkLibraries(configBuilder);
@@ -83,17 +87,61 @@ public class MavenDetector extends AbstractBuildToolDetector {
         }
     }
 
-    private void addMavenDependencies(ParserConfig.Builder configBuilder, Document pomDoc) {
+    private Map<String, String> parseProperties(Document pomDoc) {
+        Map<String, String> properties = new HashMap<>();
+        NodeList propertyNodes = pomDoc.getElementsByTagName("properties");
+        if (propertyNodes.getLength() > 0) {
+            Node item = propertyNodes.item(0);
+            if (item instanceof Element) {
+                Element propertiesElement = (Element) item;
+                NodeList childNodes = propertiesElement.getChildNodes();
+                for (int i = 0; i < childNodes.getLength(); i++) {
+                    Node childNode = childNodes.item(i);
+                    if (childNode instanceof Element) {
+                        Element property = (Element) childNode;
+                        properties.put(property.getTagName(), property.getTextContent().trim());
+                    }
+                }
+            }
+        }
+        return properties;
+    }
+
+    private String resolvePropertyValue(String value, Map<String, String> mavenProperties) {
+        if (value != null && value.startsWith("${") && value.endsWith("}")) {
+            String propertyName = value.substring(2, value.length() - 1);
+            // Recursively resolve properties in case a property value is another property
+            String resolved = mavenProperties.get(propertyName);
+            if (resolved != null && resolved.startsWith("${") && resolved.endsWith("}") && !resolved.equals(value)) {
+                 // Avoid infinite recursion if property refers to itself or a non-resolving cycle
+                return resolvePropertyValue(resolved, mavenProperties);
+            }
+            return mavenProperties.getOrDefault(propertyName, value); // Return original value if property not found
+        }
+        return value;
+    }
+
+    private void addMavenDependencies(ParserConfig.Builder configBuilder, Document pomDoc, Map<String, String> mavenProperties) {
         // Get the local repository path
         Path localRepo = getMavenLocalRepository();
         
         // Parse dependencies from pom.xml
         NodeList dependencies = pomDoc.getElementsByTagName("dependency");
         for (int i = 0; i < dependencies.getLength(); i++) {
-            Element dep = (Element) dependencies.item(i);
-            String groupId = getElementContent(dep, "groupId");
-            String artifactId = getElementContent(dep, "artifactId");
-            String version = getElementContent(dep, "version");
+            Node depNode = dependencies.item(i);
+            if (!(depNode instanceof Element)) {
+                continue;
+            }
+            Element dep = (Element) depNode;
+
+            String rawGroupId = getElementContent(dep, "groupId");
+            String groupId = resolvePropertyValue(rawGroupId, mavenProperties);
+
+            String rawArtifactId = getElementContent(dep, "artifactId");
+            String artifactId = resolvePropertyValue(rawArtifactId, mavenProperties);
+
+            String rawVersion = getElementContent(dep, "version");
+            String version = resolvePropertyValue(rawVersion, mavenProperties);
             
             if (groupId != null && artifactId != null && version != null) {
                 // Convert groupId to path format
@@ -122,10 +170,14 @@ public class MavenDetector extends AbstractBuildToolDetector {
                     Document settingsDoc = parseXmlFile(settingsPath.toFile());
                     NodeList localRepoNodes = settingsDoc.getElementsByTagName("localRepository");
                     if (localRepoNodes.getLength() > 0) {
-                        return Paths.get(localRepoNodes.item(0).getTextContent());
+                        Node repoNode = localRepoNodes.item(0);
+                        if (repoNode != null) {
+                             return Paths.get(repoNode.getTextContent().trim());
+                        }
                     }
                 } catch (Exception e) {
                     // Fall back to default
+                    System.err.println("Warning: Failed to parse Maven settings.xml or read localRepository: " + e.getMessage() + ". Falling back to default.");
                 }
             }
         }
@@ -157,7 +209,10 @@ public class MavenDetector extends AbstractBuildToolDetector {
     private String getElementContent(Element parent, String tagName) {
         NodeList elements = parent.getElementsByTagName(tagName);
         if (elements.getLength() > 0) {
-            return elements.item(0).getTextContent();
+            Node item = elements.item(0);
+            if (item != null) {
+                return item.getTextContent().trim();
+            }
         }
         return null;
     }
