@@ -5,15 +5,12 @@ import edu.stevens.swe.research.java.parser.core.utils.exceptions.ProjectDetecti
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
-import org.w3c.dom.Node;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
-import java.util.Map;
 
 public class MavenDetector extends AbstractBuildToolDetector {
     private static final String POM_FILE = "pom.xml";
@@ -74,9 +71,8 @@ public class MavenDetector extends AbstractBuildToolDetector {
                 configBuilder.sourcepath(testSources.toString());
             }
 
-            // Add Maven dependencies from Maven local repository
-            Map<String, String> mavenProperties = parseProperties(pomDoc);
-            addMavenDependencies(configBuilder, pomDoc, mavenProperties);
+            // Add dependencies from Maven local repository
+            addMavenDependencies(configBuilder, pomDoc);
 
             // Add JDK libs
             addJdkLibraries(configBuilder);
@@ -87,97 +83,87 @@ public class MavenDetector extends AbstractBuildToolDetector {
         }
     }
 
-    private Map<String, String> parseProperties(Document pomDoc) {
-        Map<String, String> properties = new HashMap<>();
-        NodeList propertyNodes = pomDoc.getElementsByTagName("properties");
-        if (propertyNodes.getLength() > 0) {
-            Node item = propertyNodes.item(0);
-            if (item instanceof Element) {
-                Element propertiesElement = (Element) item;
-                NodeList childNodes = propertiesElement.getChildNodes();
-                for (int i = 0; i < childNodes.getLength(); i++) {
-                    Node childNode = childNodes.item(i);
-                    if (childNode instanceof Element) {
-                        Element property = (Element) childNode;
-                        properties.put(property.getTagName(), property.getTextContent().trim());
-                    }
-                }
-            }
-        }
-        return properties;
-    }
-
-    private String resolvePropertyValue(String value, Map<String, String> mavenProperties) {
-        if (value != null && value.startsWith("${") && value.endsWith("}")) {
-            String propertyName = value.substring(2, value.length() - 1);
-            // Recursively resolve properties in case a property value is another property
-            String resolved = mavenProperties.get(propertyName);
-            if (resolved != null && resolved.startsWith("${") && resolved.endsWith("}") && !resolved.equals(value)) {
-                 // Avoid infinite recursion if property refers to itself or a non-resolving cycle
-                return resolvePropertyValue(resolved, mavenProperties);
-            }
-            return mavenProperties.getOrDefault(propertyName, value); // Return original value if property not found
-        }
-        return value;
-    }
-
-    private void addMavenDependencies(ParserConfig.Builder configBuilder, Document pomDoc, Map<String, String> mavenProperties) {
+    private void addMavenDependencies(ParserConfig.Builder configBuilder, Document pomDoc) {
         // Get the local repository path
         Path localRepo = getMavenLocalRepository();
-        System.out.println("DEBUG: Maven local repo path: " + localRepo);
+        System.out.println("DEBUG: Using local Maven repository: " + localRepo); // Log local repo path
 
         // Parse dependencies from pom.xml
         NodeList dependencies = pomDoc.getElementsByTagName("dependency");
-        System.out.println("DEBUG: Found " + dependencies.getLength() + " <dependency> tags.");
-
+        System.out.println("DEBUG: Found " + dependencies.getLength() + " <dependency> tags in pom.xml");
         for (int i = 0; i < dependencies.getLength(); i++) {
-            Node depNode = dependencies.item(i);
-            if (!(depNode instanceof Element)) {
-                continue;
-            }
-            Element dep = (Element) depNode;
+            Element dep = (Element) dependencies.item(i);
+            String groupId = getElementContent(dep, "groupId");
+            String artifactId = getElementContent(dep, "artifactId");
+            String version = getElementContent(dep, "version");
+            String scope = getElementContent(dep, "scope"); // Get scope
 
-            String rawGroupId = getElementContent(dep, "groupId");
-            String groupId = resolvePropertyValue(rawGroupId, mavenProperties);
-
-            String rawArtifactId = getElementContent(dep, "artifactId");
-            String artifactId = resolvePropertyValue(rawArtifactId, mavenProperties);
-
-            String rawVersion = getElementContent(dep, "version");
-            String version = resolvePropertyValue(rawVersion, mavenProperties);
-
-            String scope = getElementContent(dep, "scope");
-            if (scope == null) {
-                scope = "compile"; // Default scope
-            }
-
-            System.out.println("DEBUG: Processing dependency: G:" + groupId + ", A:" + artifactId + ", V:" + version + ", S:" + scope);
-
-            // Include dependencies with scope 'compile', 'provided', or 'test'
-            // For AST parsing, especially of test files, 'test' scope dependencies like JUnit are essential.
-            if ("compile".equalsIgnoreCase(scope) || "provided".equalsIgnoreCase(scope) || "test".equalsIgnoreCase(scope)) {
-                if (groupId != null && artifactId != null && version != null) {
-                    // Convert groupId to path format
-                    String groupPath = groupId.replace('.', '/');
-                    
-                    // Construct the path to the JAR file
-                    Path jarPath = localRepo.resolve(groupPath)
-                            .resolve(artifactId)
-                            .resolve(version)
-                            .resolve(artifactId + "-" + version + ".jar");
-                    
-                    System.out.println("DEBUG: Attempting to add to classpath: " + jarPath);
-                    if (jarPath.toFile().exists()) {
-                        configBuilder.classpath(jarPath.toString());
-                        System.out.println("DEBUG: SUCCESS - Added to classpath: " + jarPath);
-                    } else {
-                        System.err.println("DEBUG: WARNING - JAR file not found: " + jarPath);
+            // Basic property resolution for version (e.g., ${project.version})
+            // This is a simplified version and might not cover all cases (e.g., properties defined in parent POMs or settings.xml)
+            if (version != null && version.startsWith("${") && version.endsWith("}")) {
+                String propertyName = version.substring(2, version.length() - 1);
+                // Attempt to resolve from project properties (e.g. <properties><some.version>1.0</some.version></properties>)
+                NodeList propertiesList = pomDoc.getElementsByTagName("properties");
+                if (propertiesList.getLength() > 0) {
+                    Element propertiesElement = (Element) propertiesList.item(0); // Assuming properties are defined in the first <properties> block
+                    String resolvedVersion = getElementContent(propertiesElement, propertyName);
+                    if (resolvedVersion != null) {
+                        System.out.println("DEBUG: Resolved version property '" + propertyName + "' to '" + resolvedVersion + "' for " + groupId + ":" + artifactId);
+                        version = resolvedVersion;
+                    } else if ("project.version".equals(propertyName)) {
+                        // Try to get version from parent <version> tag if not found in properties
+                        // This assumes the <version> tag is a direct child of the <project> (root) element
+                        Element projectElement = pomDoc.getDocumentElement();
+                        String projectVersion = getElementContent(projectElement,"version");
+                        if(projectVersion != null){
+                             System.out.println("DEBUG: Resolved version property 'project.version' to '" + projectVersion + "' for " + groupId + ":" + artifactId);
+                            version = projectVersion;
+                        } else {
+                            System.out.println("DEBUG: Could not resolve version property '" + propertyName + "' for " + groupId + ":" + artifactId);
+                        }
                     }
+                     else {
+                        System.out.println("DEBUG: Could not resolve version property '" + propertyName + "' for " + groupId + ":" + artifactId);
+                    }
+                } else if ("project.version".equals(propertyName)) {
+                     Element projectElement = pomDoc.getDocumentElement();
+                        String projectVersion = getElementContent(projectElement,"version");
+                        if(projectVersion != null){
+                             System.out.println("DEBUG: Resolved version property 'project.version' to '" + projectVersion + "' for " + groupId + ":" + artifactId);
+                            version = projectVersion;
+                        } else {
+                            System.out.println("DEBUG: Could not resolve version property '" + propertyName + "' for " + groupId + ":" + artifactId);
+                        }
+                }
+                else {
+                    System.out.println("DEBUG: <properties> tag not found, cannot resolve version property '" + propertyName + "' for " + groupId + ":" + artifactId);
+                }
+            }
+
+
+            System.out.println("DEBUG: Processing dependency: groupId=" + groupId + ", artifactId=" + artifactId + ", version=" + version + ", scope=" + (scope != null ? scope : "default (compile)"));
+
+
+            if (groupId != null && artifactId != null && version != null) {
+                // Convert groupId to path format
+                String groupPath = groupId.replace('.', '/');
+
+                // Construct the path to the JAR file
+                Path jarPath = localRepo.resolve(groupPath)
+                        .resolve(artifactId)
+                        .resolve(version)
+                        .resolve(artifactId + "-" + version + ".jar");
+
+                System.out.println("DEBUG: Attempting to locate JAR: " + jarPath.toString()); // Log constructed JAR path
+
+                if (jarPath.toFile().exists()) {
+                    configBuilder.classpath(jarPath.toString());
+                    System.out.println("DEBUG: Added to classpath: " + jarPath.toString());
                 } else {
-                    System.err.println("DEBUG: WARNING - Skipping dependency due to missing G, A, or V. Original G:" + rawGroupId + ", A:"+ rawArtifactId + ", V:"+ rawVersion);
+                    System.out.println("DEBUG: JAR NOT FOUND: " + jarPath.toString());
                 }
             } else {
-                System.out.println("DEBUG: Skipping dependency due to scope: " + scope + " (G:" + groupId + ", A:" + artifactId + ")");
+                System.out.println("DEBUG: Skipping dependency due to missing groupId, artifactId, or version.");
             }
         }
     }
@@ -192,14 +178,10 @@ public class MavenDetector extends AbstractBuildToolDetector {
                     Document settingsDoc = parseXmlFile(settingsPath.toFile());
                     NodeList localRepoNodes = settingsDoc.getElementsByTagName("localRepository");
                     if (localRepoNodes.getLength() > 0) {
-                        Node repoNode = localRepoNodes.item(0);
-                        if (repoNode != null) {
-                             return Paths.get(repoNode.getTextContent().trim());
-                        }
+                        return Paths.get(localRepoNodes.item(0).getTextContent());
                     }
                 } catch (Exception e) {
                     // Fall back to default
-                    System.err.println("Warning: Failed to parse Maven settings.xml or read localRepository: " + e.getMessage() + ". Falling back to default.");
                 }
             }
         }
@@ -231,10 +213,7 @@ public class MavenDetector extends AbstractBuildToolDetector {
     private String getElementContent(Element parent, String tagName) {
         NodeList elements = parent.getElementsByTagName(tagName);
         if (elements.getLength() > 0) {
-            Node item = elements.item(0);
-            if (item != null) {
-                return item.getTextContent().trim();
-            }
+            return elements.item(0).getTextContent();
         }
         return null;
     }
