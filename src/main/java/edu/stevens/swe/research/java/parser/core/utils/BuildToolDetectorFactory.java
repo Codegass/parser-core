@@ -23,9 +23,14 @@ public class BuildToolDetectorFactory {
      * @throws ProjectDetectionException if no suitable build tool is found or detection fails
      */
     public static ParserConfig detect(Path projectRoot) throws ProjectDetectionException {
+        System.out.println("DEBUG: BuildToolDetectorFactory.detect() called for project: " + projectRoot);
         for (ProjectDetector detector : detectors) {
+            System.out.println("DEBUG: Trying detector: " + detector.getClass().getSimpleName());
             if (detector.supports(projectRoot)) {
+                System.out.println("DEBUG: Using detector: " + detector.getClass().getSimpleName() + " for project: " + projectRoot);
                 return detector.detect(projectRoot);
+            } else {
+                System.out.println("DEBUG: Detector " + detector.getClass().getSimpleName() + " does not support project: " + projectRoot);
             }
         }
         throw new ProjectDetectionException("No supported build tool found in: " + projectRoot);
