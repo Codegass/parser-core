@@ -162,8 +162,101 @@ public class MavenDetector extends AbstractBuildToolDetector {
                 } else {
                     System.out.println("DEBUG: JAR NOT FOUND: " + jarPath.toString());
                 }
+            } else if (groupId != null && artifactId != null && version == null) {
+                // Handle dependencies without explicit version - search in local repo for any available version
+                System.out.println("DEBUG: No version specified for " + groupId + ":" + artifactId + ", searching in local repository...");
+                findAndAddAvailableVersions(configBuilder, localRepo, groupId, artifactId);
             } else {
                 System.out.println("DEBUG: Skipping dependency due to missing groupId, artifactId, or version.");
+            }
+        }
+
+        // WORKAROUND: Add common test dependencies that might be missing due to version management issues
+        System.out.println("DEBUG: Adding common test dependencies with default versions...");
+        addCommonTestDependencies(configBuilder, localRepo);
+    }
+
+    /**
+     * Searches for all available versions of a dependency in the local Maven repository
+     * and adds them to the classpath.
+     */
+    private void findAndAddAvailableVersions(ParserConfig.Builder configBuilder, Path localRepo, String groupId, String artifactId) {
+        try {
+            String groupPath = groupId.replace('.', '/');
+            Path artifactDir = localRepo.resolve(groupPath).resolve(artifactId);
+            
+            System.out.println("DEBUG: Searching for versions in: " + artifactDir);
+            
+            if (!artifactDir.toFile().exists() || !artifactDir.toFile().isDirectory()) {
+                System.out.println("DEBUG: Artifact directory not found: " + artifactDir);
+                return;
+            }
+            
+            File[] versionDirs = artifactDir.toFile().listFiles(File::isDirectory);
+            if (versionDirs == null || versionDirs.length == 0) {
+                System.out.println("DEBUG: No version directories found for " + groupId + ":" + artifactId);
+                return;
+            }
+            
+            // Sort version directories to prefer newer versions (simple string sort, could be improved)
+            java.util.Arrays.sort(versionDirs, (a, b) -> b.getName().compareTo(a.getName()));
+            
+            boolean foundAny = false;
+            for (File versionDir : versionDirs) {
+                String version = versionDir.getName();
+                Path jarPath = versionDir.toPath().resolve(artifactId + "-" + version + ".jar");
+                
+                if (jarPath.toFile().exists()) {
+                    configBuilder.classpath(jarPath.toString());
+                    System.out.println("DEBUG: Added available version to classpath: " + jarPath);
+                    foundAny = true;
+                    // For now, just take the first (latest) version we find
+                    // Could be modified to add all versions if needed
+                    break;
+                }
+            }
+            
+            if (!foundAny) {
+                System.out.println("DEBUG: No JAR files found for any version of " + groupId + ":" + artifactId);
+            }
+            
+        } catch (Exception e) {
+            System.out.println("DEBUG: Error searching for versions of " + groupId + ":" + artifactId + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Adds common test dependencies with default versions when they are not resolved from pom.xml
+     * This is a workaround for dependencies that have versions managed by parent POMs.
+     */
+    private void addCommonTestDependencies(ParserConfig.Builder configBuilder, Path localRepo) {
+        // Common JUnit 5 dependencies
+        String[][] commonTestDeps = {
+            {"org.junit.jupiter", "junit-jupiter-api", "5.11.4"},
+            {"org.junit.jupiter", "junit-jupiter-engine", "5.11.4"},
+            {"org.junit.jupiter", "junit-jupiter-params", "5.11.4"},
+            {"org.mockito", "mockito-core", "5.15.2"},
+            {"org.hamcrest", "hamcrest", "3.0"},
+            {"org.assertj", "assertj-core", "3.26.3"}
+        };
+
+        for (String[] dep : commonTestDeps) {
+            String groupId = dep[0];
+            String artifactId = dep[1];
+            String version = dep[2];
+
+            String groupPath = groupId.replace('.', '/');
+            Path jarPath = localRepo.resolve(groupPath)
+                    .resolve(artifactId)
+                    .resolve(version)
+                    .resolve(artifactId + "-" + version + ".jar");
+
+            System.out.println("DEBUG: Checking for common test dependency: " + jarPath);
+            if (jarPath.toFile().exists()) {
+                configBuilder.classpath(jarPath.toString());
+                System.out.println("DEBUG: Added common test dependency to classpath: " + jarPath);
+            } else {
+                System.out.println("DEBUG: Common test dependency NOT FOUND: " + jarPath);
             }
         }
     }
