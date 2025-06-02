@@ -4,6 +4,11 @@ import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTParser;
 import java.util.Map;
+import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class ASTProcessor {
     private ParserConfig config;
@@ -47,16 +52,48 @@ public class ASTProcessor {
             // We have multiple source paths but only one (default) encoding specified.
             // Passing null tells JDT to use the default encoding for all source path entries.
             effectiveEncodings = null; 
-        } else if (encodings != null && encodings.length > 0) {
-            // If encodings are provided and match (or single source path and single encoding), use them.
-            // This also covers the case where sourcepathEntries is null/empty but encodings were set (though less common).
-            effectiveEncodings = encodings;
+        } else if (sourcepathEntries != null && sourcepathEntries.length > 0 && 
+                   encodings != null && encodings.length > 0) {
+            // If encodings are provided and we have source paths, use them only if lengths match
+            if (encodings.length == sourcepathEntries.length) {
+                effectiveEncodings = encodings;
+            } else {
+                // Length mismatch, use null to let JDT use default encoding
+                effectiveEncodings = null;
+            }
+        } else if (sourcepathEntries == null || sourcepathEntries.length == 0) {
+            // No source paths, so no encodings needed
+            effectiveEncodings = null;
         }
         // If both sourcepathEntries and encodings are null or empty, effectiveEncodings remains null, which is fine.
 
+        // Prepare classpath entries with safety checks and fallbacks
+        String[] classpathEntries = prepareClasspathEntries();
+
+        // Add detailed debugging before setEnvironment call
+        System.out.println("DEBUG: About to call setEnvironment with:");
+        System.out.println("DEBUG: classpathEntries = " + (classpathEntries == null ? "null" : "array[" + classpathEntries.length + "]"));
+        if (classpathEntries != null) {
+            for (int i = 0; i < classpathEntries.length; i++) {
+                System.out.println("DEBUG:   [" + i + "] = " + classpathEntries[i]);
+            }
+        }
+        System.out.println("DEBUG: sourcepathEntries = " + (sourcepathEntries == null ? "null" : "array[" + sourcepathEntries.length + "]"));
+        if (sourcepathEntries != null) {
+            for (int i = 0; i < sourcepathEntries.length; i++) {
+                System.out.println("DEBUG:   [" + i + "] = " + sourcepathEntries[i]);
+            }
+        }
+        System.out.println("DEBUG: effectiveEncodings = " + (effectiveEncodings == null ? "null" : "array[" + effectiveEncodings.length + "]"));
+        if (effectiveEncodings != null) {
+            for (int i = 0; i < effectiveEncodings.length; i++) {
+                System.out.println("DEBUG:   [" + i + "] = " + effectiveEncodings[i]);
+            }
+        }
+
         // Set environment with classpath and sourcepath if available
         parser.setEnvironment(
-            config.getClasspathEntries(),
+            classpathEntries,
             sourcepathEntries,
             effectiveEncodings, // Use the potentially adjusted encodings array
             true
@@ -65,5 +102,65 @@ public class ASTProcessor {
         // Configure the parser to parse compilation units (i.e., complete source files)
         parser.setKind(ASTParser.K_COMPILATION_UNIT);
         return parser;
+    }
+
+    /**
+     * Prepares classpath entries with safety checks and fallbacks.
+     * Ensures the returned array is not null and contains no null elements.
+     * If no classpath entries are available, provides basic JDK libraries as fallback.
+     */
+    private String[] prepareClasspathEntries() {
+        String[] originalClasspath = config.getClasspathEntries();
+        List<String> validClasspath = new ArrayList<>();
+
+        // Filter out null entries from original classpath
+        if (originalClasspath != null) {
+            for (String entry : originalClasspath) {
+                if (entry != null && !entry.trim().isEmpty()) {
+                    validClasspath.add(entry);
+                }
+            }
+        }
+
+        // If no valid classpath entries found, add basic JDK libraries as fallback
+        if (validClasspath.isEmpty()) {
+            System.out.println("DEBUG: No classpath entries found, adding JDK libraries as fallback");
+            addJdkLibrariesFallback(validClasspath);
+        }
+
+        // If still empty after fallback, provide an empty but non-null array
+        // JDT can work with empty classpath array
+        return validClasspath.toArray(new String[0]);
+    }
+
+    /**
+     * Adds basic JDK libraries to the classpath as a fallback.
+     */
+    private void addJdkLibrariesFallback(List<String> classpath) {
+        String javaHome = System.getProperty("java.home");
+        if (javaHome != null) {
+            Path javaHomePath = Paths.get(javaHome);
+            
+            // Fixed: Use Path.resolve() chain instead of hardcoded path strings for cross-platform compatibility
+            // For Java 9+ (modules system)
+            Path jrtFs = javaHomePath.resolve("lib").resolve("jrt-fs.jar");
+            if (jrtFs.toFile().exists()) {
+                classpath.add(jrtFs.toString());
+                System.out.println("DEBUG: Added JDK library fallback: " + jrtFs);
+                return;
+            }
+            
+            // For Java 8 and earlier
+            Path rtJar = javaHomePath.resolve("lib").resolve("rt.jar");
+            if (rtJar.toFile().exists()) {
+                classpath.add(rtJar.toString());
+                System.out.println("DEBUG: Added JDK library fallback: " + rtJar);
+                return;
+            }
+            
+            System.out.println("DEBUG: No JDK libraries found in fallback attempt: " + javaHome);
+        } else {
+            System.out.println("DEBUG: java.home system property not found for JDK libraries fallback");
+        }
     }
 }

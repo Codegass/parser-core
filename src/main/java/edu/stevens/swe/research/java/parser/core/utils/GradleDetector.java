@@ -25,7 +25,7 @@ import java.util.Set;
 public class GradleDetector extends AbstractBuildToolDetector {
     private static final String BUILD_GRADLE = "build.gradle";
     private static final String SETTINGS_GRADLE = "settings.gradle";
-    private static final String GRADLE_CACHE_PATH = ".gradle/caches/modules-2/files-2.1";
+    private static final String GRADLE_CACHE_PATH = ".gradle" + File.separator + "caches" + File.separator + "modules-2" + File.separator + "files-2.1";
 
     @Override
     public boolean supports(Path projectRoot) {
@@ -129,25 +129,25 @@ public class GradleDetector extends AbstractBuildToolDetector {
             }
             // Note: EclipseProject model might not explicitly separate test output location easily without custom config.
             // Common paths for Gradle output are added below as a fallback/addition.
-            Path buildClassesMain = projectRoot.resolve("build/classes/java/main");
+            Path buildClassesMain = projectRoot.resolve("build").resolve("classes").resolve("java").resolve("main");
             if (buildClassesMain.toFile().exists() && !processedPaths.contains(buildClassesMain.toString())) {
                 configBuilder.classpath(buildClassesMain.toString());
                 processedPaths.add(buildClassesMain.toString());
                 System.out.println("DEBUG: Added Gradle main classes directory: " + buildClassesMain);
             }
-            Path buildClassesTest = projectRoot.resolve("build/classes/java/test");
+            Path buildClassesTest = projectRoot.resolve("build").resolve("classes").resolve("java").resolve("test");
             if (buildClassesTest.toFile().exists() && !processedPaths.contains(buildClassesTest.toString())) {
                 configBuilder.classpath(buildClassesTest.toString());
                 processedPaths.add(buildClassesTest.toString());
                 System.out.println("DEBUG: Added Gradle test classes directory: " + buildClassesTest);
             }
-            Path buildResourcesMain = projectRoot.resolve("build/resources/main");
+            Path buildResourcesMain = projectRoot.resolve("build").resolve("resources").resolve("main");
             if (buildResourcesMain.toFile().exists() && !processedPaths.contains(buildResourcesMain.toString())) {
                 configBuilder.classpath(buildResourcesMain.toString());
                 processedPaths.add(buildResourcesMain.toString());
                 System.out.println("DEBUG: Added Gradle main resources directory: " + buildResourcesMain);
             }
-            Path buildResourcesTest = projectRoot.resolve("build/resources/test");
+            Path buildResourcesTest = projectRoot.resolve("build").resolve("resources").resolve("test");
             if (buildResourcesTest.toFile().exists() && !processedPaths.contains(buildResourcesTest.toString())) {
                 configBuilder.classpath(buildResourcesTest.toString());
                 processedPaths.add(buildResourcesTest.toString());
@@ -202,7 +202,7 @@ public class GradleDetector extends AbstractBuildToolDetector {
     private void addCommonTestDependenciesForGradle(ParserConfig.Builder configBuilder, Set<String> processedPaths) {
         // Gradle cache is typically in ~/.gradle/caches/modules-2/files-2.1/
         Path userHome = Paths.get(System.getProperty("user.home"));
-        Path gradleCache = userHome.resolve(".gradle/caches/modules-2/files-2.1");
+        Path gradleCache = userHome.resolve(".gradle").resolve("caches").resolve("modules-2").resolve("files-2.1");
         
         if (!gradleCache.toFile().exists()) {
             System.out.println("DEBUG: Gradle cache directory not found: " + gradleCache);
@@ -276,10 +276,10 @@ public class GradleDetector extends AbstractBuildToolDetector {
 
     private void addJdkLibraries(ParserConfig.Builder configBuilder) {
         Path javaHome = Paths.get(getJavaHome());
-        Path jrtFs = javaHome.resolve("lib/jrt-fs.jar");
+        Path jrtFs = javaHome.resolve("lib").resolve("jrt-fs.jar");
         
         // For Java 8 and earlier
-        Path rtJar = javaHome.resolve("lib/rt.jar");
+        Path rtJar = javaHome.resolve("lib").resolve("rt.jar");
         
         if (rtJar.toFile().exists()) {
             configBuilder.classpath(rtJar.toString());
