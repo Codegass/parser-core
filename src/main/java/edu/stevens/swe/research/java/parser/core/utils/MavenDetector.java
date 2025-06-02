@@ -99,7 +99,7 @@ public class MavenDetector extends AbstractBuildToolDetector {
             String groupId = getElementContent(dep, "groupId");
             String artifactId = getElementContent(dep, "artifactId");
             String version = getElementContent(dep, "version");
-
+            
             if (groupId != null && artifactId != null && version != null) {
                 String key = groupId + ":" + artifactId;
                 String resolvedVersion = resolveVersionProperties(version, pomDoc);
@@ -286,13 +286,13 @@ public class MavenDetector extends AbstractBuildToolDetector {
                         .resolve(artifactId + "-" + resolvedVersion + ".jar");
 
                 System.out.println("DEBUG: Attempting to locate JAR: " + jarPath.toString());
-
+                
                 if (jarPath.toFile().exists()) {
                     configBuilder.classpath(jarPath.toString());
                     System.out.println("DEBUG: Added to classpath: " + jarPath.toString());
                 } else {
                     System.out.println("DEBUG: JAR NOT FOUND: " + jarPath.toString());
-                }
+            }
             } else if (groupId != null && artifactId != null && version == null) {
                 System.out.println("DEBUG: No version specified for " + groupId + ":" + artifactId + ", searching in local repository...");
                 findAndAddAvailableVersions(configBuilder, localRepo, groupId, artifactId);

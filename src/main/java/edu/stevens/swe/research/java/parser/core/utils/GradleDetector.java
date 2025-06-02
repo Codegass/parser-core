@@ -17,10 +17,18 @@ import org.gradle.tooling.model.eclipse.EclipseProjectDependency;
 import org.gradle.tooling.model.eclipse.EclipseClasspathEntry;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
+import java.util.stream.Stream;
 
 public class GradleDetector extends AbstractBuildToolDetector {
     private static final String BUILD_GRADLE = "build.gradle";
@@ -41,8 +49,8 @@ public class GradleDetector extends AbstractBuildToolDetector {
         try {
             ParserConfig.Builder configBuilder = createBaseConfig();
 
-            // Add dependencies and source/resource paths using Gradle Tooling API
-            addGradleProjectDetails(configBuilder, projectRoot);
+            // Enhanced multi-module Gradle project detection
+            addEnhancedGradleProjectDetails(configBuilder, projectRoot);
 
             // Add JDK libraries
             addJdkLibraries(configBuilder);
@@ -53,7 +61,96 @@ public class GradleDetector extends AbstractBuildToolDetector {
         }
     }
 
-    private void addGradleProjectDetails(ParserConfig.Builder configBuilder, Path projectRoot) {
+    private void addEnhancedGradleProjectDetails(ParserConfig.Builder configBuilder, Path projectRoot) {
+        Set<String> processedPaths = new HashSet<>();
+        
+        // Parse project-specific dependency definitions first
+        Map<String, String> projectDependencyVersions = parseProjectDependencyDefinitions(projectRoot);
+        
+        // Smart Gradle compatibility handling
+        String gradleVersion = detectGradleVersion(projectRoot);
+        boolean useToolingApi = isGradleToolingApiCompatible(gradleVersion);
+        
+        if (useToolingApi) {
+            try {
+                System.out.println("DEBUG: Using Gradle Tooling API for version: " + gradleVersion);
+                addGradleToolingApiDetails(configBuilder, projectRoot, processedPaths);
+            } catch (Exception e) {
+                System.err.println("DEBUG: Gradle Tooling API failed: " + e.getMessage());
+                System.err.println("DEBUG: Falling back to file system based detection...");
+                useToolingApi = false;
+            }
+        } else {
+            System.out.println("DEBUG: Gradle version " + gradleVersion + " not compatible with Tooling API, using file system detection");
+        }
+        
+        // Always add file system based detection for better coverage (or as fallback)
+        addFileSystemBasedGradleDetails(configBuilder, projectRoot, processedPaths);
+        
+        // Add enhanced test dependencies using project-specific versions
+        addEnhancedTestDependencies(configBuilder, projectRoot, projectDependencyVersions, processedPaths);
+    }
+
+    /**
+     * Parse project-specific dependency definitions from gradle files
+     */
+    private Map<String, String> parseProjectDependencyDefinitions(Path projectRoot) {
+        Map<String, String> dependencies = new HashMap<>();
+        
+        // Look for dependency definition files in gradle/scripts directory
+        Path gradleScriptsDir = projectRoot.resolve("gradle").resolve("scripts");
+        Path dependencyDefsFile = gradleScriptsDir.resolve("dependencyDefinitions.gradle");
+        
+        if (dependencyDefsFile.toFile().exists()) {
+            System.out.println("DEBUG: Found dependency definitions file: " + dependencyDefsFile);
+            parseDependencyDefinitionsFile(dependencyDefsFile, dependencies);
+        }
+        
+        return dependencies;
+    }
+    
+    /**
+     * Parse dependency definitions from gradle script file
+     */
+    private void parseDependencyDefinitionsFile(Path file, Map<String, String> dependencies) {
+        try {
+            List<String> lines = Files.readAllLines(file);
+            boolean inExternalDependency = false;
+            
+            for (String line : lines) {
+                line = line.trim();
+                
+                if (line.contains("ext.externalDependency = [")) {
+                    inExternalDependency = true;
+                    continue;
+                }
+                
+                if (inExternalDependency) {
+                    if (line.equals("]")) {
+                        break; // End of externalDependency block
+                    }
+                    
+                    // Parse dependency entries like: "testng": "org.testng:testng:6.14.3",
+                    Pattern pattern = Pattern.compile("\"([^\"]+)\"\\s*:\\s*\"([^\"]+)\"");
+                    Matcher matcher = pattern.matcher(line);
+                    
+                    if (matcher.find()) {
+                        String key = matcher.group(1);
+                        String value = matcher.group(2);
+                        dependencies.put(key, value);
+                        System.out.println("DEBUG: Parsed dependency: " + key + " = " + value);
+                    }
+                }
+            }
+            
+            System.out.println("DEBUG: Parsed " + dependencies.size() + " dependency definitions from project");
+            
+        } catch (IOException e) {
+            System.err.println("DEBUG: Error parsing dependency definitions file: " + e.getMessage());
+        }
+    }
+
+    private void addGradleToolingApiDetails(ParserConfig.Builder configBuilder, Path projectRoot, Set<String> processedPaths) {
         ProjectConnection connection = null;
         try {
             System.out.println("DEBUG: Connecting to Gradle project using Tooling API...");
@@ -61,31 +158,26 @@ public class GradleDetector extends AbstractBuildToolDetector {
                     .forProjectDirectory(projectRoot.toFile())
                     .connect();
 
-            // Get IDEA project model for source directories and some dependency info
+            // Get IDEA project model for comprehensive module information
             IdeaProject ideaProject = connection.model(IdeaProject.class).get();
-            Set<String> processedPaths = new HashSet<>();
-            
-            System.out.println("DEBUG: Found " + ideaProject.getModules().size() + " Gradle modules");
+            System.out.println("DEBUG: Found " + ideaProject.getModules().size() + " Gradle modules via Tooling API");
 
             for (IdeaModule module : ideaProject.getModules()) {
-                System.out.println("DEBUG: Processing module: " + module.getName());
+                System.out.println("DEBUG: Processing Tooling API module: " + module.getName());
                 
-                // Add module source directories (main and test)
+                // Add module source directories
                 for (IdeaContentRoot contentRoot : module.getContentRoots()) {
                     for (IdeaSourceDirectory sourceDir : contentRoot.getSourceDirectories()) {
                         File dirFile = sourceDir.getDirectory();
                         if (dirFile.exists() && !processedPaths.contains(dirFile.getAbsolutePath())) {
                             configBuilder.sourcepath(dirFile.getAbsolutePath());
                             processedPaths.add(dirFile.getAbsolutePath());
-                            System.out.println("DEBUG: Added source directory: " + dirFile.getAbsolutePath());
+                            System.out.println("DEBUG: Added Tooling API source directory: " + dirFile.getAbsolutePath());
                         }
                     }
-                    // It seems IdeaSourceDirectory doesn't distinguish well between source/resource or main/test easily by type
-                    // We might need to rely on path conventions or use EclipseProject model for more details
                 }
 
                 // Add module dependencies (JARs)
-                // This gets all library dependencies, doesn't easily distinguish test/compile scope with IdeaProject alone
                 System.out.println("DEBUG: Processing " + module.getDependencies().size() + " dependencies for module: " + module.getName());
                 module.getDependencies().forEach(dependency -> {
                     if (dependency instanceof IdeaSingleEntryLibraryDependency) {
@@ -93,15 +185,15 @@ public class GradleDetector extends AbstractBuildToolDetector {
                         if (file != null && file.exists() && file.getName().endsWith(".jar") && !processedPaths.contains(file.getAbsolutePath())) {
                             configBuilder.classpath(file.getAbsolutePath());
                             processedPaths.add(file.getAbsolutePath());
-                            System.out.println("DEBUG: Added dependency JAR: " + file.getAbsolutePath());
+                            System.out.println("DEBUG: Added Tooling API dependency JAR: " + file.getAbsolutePath());
                         } else if (file != null && !file.exists()) {
-                            System.out.println("DEBUG: Dependency JAR not found: " + file.getAbsolutePath());
+                            System.out.println("DEBUG: Tooling API dependency JAR not found: " + file.getAbsolutePath());
                         }
                     }
                 });
             }
 
-            // Use EclipseProject model for more detailed classpath and output locations (main and test)
+            // Use EclipseProject model for additional classpath information
             EclipseProject eclipseProject = connection.model(EclipseProject.class).get();
             System.out.println("DEBUG: Processing Eclipse project model for additional classpath entries");
             
@@ -114,7 +206,7 @@ public class GradleDetector extends AbstractBuildToolDetector {
                 }
             }
 
-            // Add main and test compile output directories from Eclipse model
+            // Add Eclipse output locations
             EclipseOutputLocation outputLocation = eclipseProject.getOutputLocation();
             if (outputLocation != null) {
                 File outputDir = new File(outputLocation.getPath());
@@ -127,34 +219,8 @@ public class GradleDetector extends AbstractBuildToolDetector {
                     }
                 }
             }
-            // Note: EclipseProject model might not explicitly separate test output location easily without custom config.
-            // Common paths for Gradle output are added below as a fallback/addition.
-            Path buildClassesMain = projectRoot.resolve("build").resolve("classes").resolve("java").resolve("main");
-            if (buildClassesMain.toFile().exists() && !processedPaths.contains(buildClassesMain.toString())) {
-                configBuilder.classpath(buildClassesMain.toString());
-                processedPaths.add(buildClassesMain.toString());
-                System.out.println("DEBUG: Added Gradle main classes directory: " + buildClassesMain);
-            }
-            Path buildClassesTest = projectRoot.resolve("build").resolve("classes").resolve("java").resolve("test");
-            if (buildClassesTest.toFile().exists() && !processedPaths.contains(buildClassesTest.toString())) {
-                configBuilder.classpath(buildClassesTest.toString());
-                processedPaths.add(buildClassesTest.toString());
-                System.out.println("DEBUG: Added Gradle test classes directory: " + buildClassesTest);
-            }
-            Path buildResourcesMain = projectRoot.resolve("build").resolve("resources").resolve("main");
-            if (buildResourcesMain.toFile().exists() && !processedPaths.contains(buildResourcesMain.toString())) {
-                configBuilder.classpath(buildResourcesMain.toString());
-                processedPaths.add(buildResourcesMain.toString());
-                System.out.println("DEBUG: Added Gradle main resources directory: " + buildResourcesMain);
-            }
-            Path buildResourcesTest = projectRoot.resolve("build").resolve("resources").resolve("test");
-            if (buildResourcesTest.toFile().exists() && !processedPaths.contains(buildResourcesTest.toString())) {
-                configBuilder.classpath(buildResourcesTest.toString());
-                processedPaths.add(buildResourcesTest.toString());
-                System.out.println("DEBUG: Added Gradle test resources directory: " + buildResourcesTest);
-            }
 
-            // Add classpath entries from Eclipse model (these are usually resolved JARs and project dependencies)
+            // Add classpath entries from Eclipse model
             System.out.println("DEBUG: Processing " + eclipseProject.getClasspath().size() + " Eclipse classpath entries");
             for (EclipseClasspathEntry cpEntry : eclipseProject.getClasspath()) {
                 if (cpEntry instanceof EclipseExternalDependency) {
@@ -168,26 +234,15 @@ public class GradleDetector extends AbstractBuildToolDetector {
                         System.out.println("DEBUG: Eclipse external dependency not found: " + file.getAbsolutePath());
                     }
                 } else if (cpEntry instanceof EclipseProjectDependency) {
-                    // For inter-project dependencies, we might need to find their output path.
-                    // The EclipseProjectDependency model gives access to the depended-on project.
-                    // For simplicity now, we rely on the general output paths being added.
-                    // A more robust solution would inspect the linked EclipseProjectDependency.getProject().getOutputLocation()
                     EclipseProjectDependency projectDep = (EclipseProjectDependency) cpEntry;
                     System.out.println("DEBUG: Found Eclipse project dependency: " + projectDep.getPath());
+                    // TODO: Add project dependency handling if needed
                 }
-                // Other types of ClasspathEntry could exist (e.g., source folders, containers like JRE)
-                // but for JARs and project outputs, ExternalDependency and ProjectDependency are key.
             }
-
-            // Add common test dependencies as fallback
-            System.out.println("DEBUG: Adding common test dependencies as fallback for Gradle project...");
-            addCommonTestDependenciesForGradle(configBuilder, processedPaths);
 
         } catch (Exception e) {
             System.err.println("DEBUG: Error using Gradle Tooling API: " + e.getMessage());
-            System.err.println("DEBUG: Falling back to common test dependencies only...");
-            // Fallback: add common test dependencies from Gradle cache
-            addCommonTestDependenciesForGradle(configBuilder, new HashSet<>());
+            throw e;
         } finally {
             if (connection != null) {
                 connection.close();
@@ -196,65 +251,227 @@ public class GradleDetector extends AbstractBuildToolDetector {
     }
 
     /**
-     * Adds common test dependencies for Gradle projects by searching in Gradle's cache directory.
-     * This is a fallback mechanism when Gradle Tooling API fails or misses some dependencies.
+     * Enhanced file system based detection for multi-module Gradle projects
      */
-    private void addCommonTestDependenciesForGradle(ParserConfig.Builder configBuilder, Set<String> processedPaths) {
-        // Gradle cache is typically in ~/.gradle/caches/modules-2/files-2.1/
-        Path userHome = Paths.get(System.getProperty("user.home"));
-        Path gradleCache = userHome.resolve(".gradle").resolve("caches").resolve("modules-2").resolve("files-2.1");
+    private void addFileSystemBasedGradleDetails(ParserConfig.Builder configBuilder, Path projectRoot, Set<String> processedPaths) {
+        System.out.println("DEBUG: Starting file system based Gradle project detection...");
         
-        if (!gradleCache.toFile().exists()) {
-            System.out.println("DEBUG: Gradle cache directory not found: " + gradleCache);
-            return;
+        // Discover all modules by finding build.gradle files
+        Set<Path> allModules = discoverGradleModules(projectRoot);
+        System.out.println("DEBUG: Discovered " + allModules.size() + " Gradle modules via file system");
+        
+        for (Path moduleRoot : allModules) {
+            String moduleName = projectRoot.relativize(moduleRoot).toString();
+            if (moduleName.isEmpty()) {
+                moduleName = "root";
+            }
+            System.out.println("DEBUG: Processing file system module: " + moduleName + " at " + moduleRoot);
+            
+            // Add source directories for this module
+            addModuleSourceDirectories(configBuilder, moduleRoot, moduleName, processedPaths);
+            
+            // Add build output directories for this module
+            addModuleBuildOutputs(configBuilder, moduleRoot, moduleName, processedPaths);
+        }
+    }
+
+    /**
+     * Discover all Gradle modules by finding build.gradle files
+     */
+    private Set<Path> discoverGradleModules(Path projectRoot) {
+        Set<Path> modules = new HashSet<>();
+        
+        try (Stream<Path> paths = Files.walk(projectRoot)) {
+            paths.filter(path -> path.getFileName().toString().equals(BUILD_GRADLE))
+                 .map(Path::getParent)
+                 .forEach(moduleRoot -> {
+                     modules.add(moduleRoot);
+                     System.out.println("DEBUG: Found Gradle module at: " + moduleRoot);
+                 });
+        } catch (IOException e) {
+            System.err.println("DEBUG: Error discovering Gradle modules: " + e.getMessage());
         }
         
-        System.out.println("DEBUG: Searching for common test dependencies in Gradle cache: " + gradleCache);
-        
-        // Common test dependencies to search for
-        String[][] commonTestDeps = {
-            {"org.junit.jupiter", "junit-jupiter-api"},
-            {"org.junit.jupiter", "junit-jupiter-engine"},
-            {"org.junit.jupiter", "junit-jupiter-params"},
-            {"org.mockito", "mockito-core"},
-            {"org.hamcrest", "hamcrest"},
-            {"org.assertj", "assertj-core"}
+        return modules;
+    }
+
+    /**
+     * Add source directories for a specific module
+     */
+    private void addModuleSourceDirectories(ParserConfig.Builder configBuilder, Path moduleRoot, String moduleName, Set<String> processedPaths) {
+        // Standard Gradle source directories
+        String[][] sourceDirs = {
+            {"src", "main", "java"},      // Main Java sources
+            {"src", "test", "java"},      // Test Java sources
+            {"src", "main", "resources"}, // Main resources
+            {"src", "test", "resources"}  // Test resources
         };
         
-        for (String[] dep : commonTestDeps) {
+        for (String[] dirParts : sourceDirs) {
+            Path sourceDir = moduleRoot;
+            for (String part : dirParts) {
+                sourceDir = sourceDir.resolve(part);
+            }
+            
+            if (sourceDir.toFile().exists() && !processedPaths.contains(sourceDir.toString())) {
+                if (dirParts[dirParts.length - 1].equals("java")) {
+                    configBuilder.sourcepath(sourceDir.toString());
+                    System.out.println("DEBUG: Added module " + moduleName + " source directory: " + sourceDir);
+                } else {
+                    configBuilder.classpath(sourceDir.toString());
+                    System.out.println("DEBUG: Added module " + moduleName + " resource directory: " + sourceDir);
+                }
+                processedPaths.add(sourceDir.toString());
+            }
+        }
+    }
+
+    /**
+     * Add build output directories for a specific module
+     */
+    private void addModuleBuildOutputs(ParserConfig.Builder configBuilder, Path moduleRoot, String moduleName, Set<String> processedPaths) {
+        // Standard Gradle build output directories
+        String[][] buildDirs = {
+            {"build", "classes", "java", "main"},     // Main compiled classes
+            {"build", "classes", "java", "test"},     // Test compiled classes
+            {"build", "resources", "main"},           // Main processed resources
+            {"build", "resources", "test"},           // Test processed resources
+            {"build", "classes", "main"},             // Alternative main classes (older Gradle)
+            {"build", "classes", "test"}              // Alternative test classes (older Gradle)
+        };
+        
+        for (String[] dirParts : buildDirs) {
+            Path buildDir = moduleRoot;
+            for (String part : dirParts) {
+                buildDir = buildDir.resolve(part);
+            }
+            
+            if (buildDir.toFile().exists() && !processedPaths.contains(buildDir.toString())) {
+                configBuilder.classpath(buildDir.toString());
+                processedPaths.add(buildDir.toString());
+                System.out.println("DEBUG: Added module " + moduleName + " build directory: " + buildDir);
+            }
+        }
+        
+        // Also check for JAR outputs in build/libs
+        Path libsDir = moduleRoot.resolve("build").resolve("libs");
+        if (libsDir.toFile().exists()) {
+            try (Stream<Path> jarFiles = Files.list(libsDir)) {
+                jarFiles.filter(path -> path.toString().endsWith(".jar"))
+                        .forEach(jarPath -> {
+                            if (!processedPaths.contains(jarPath.toString())) {
+                                configBuilder.classpath(jarPath.toString());
+                                processedPaths.add(jarPath.toString());
+                                System.out.println("DEBUG: Added module " + moduleName + " JAR: " + jarPath);
+                            }
+                        });
+            } catch (IOException e) {
+                System.err.println("DEBUG: Error scanning libs directory for module " + moduleName + ": " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Enhanced test dependencies resolution using project-specific versions and multiple cache locations
+     */
+    private void addEnhancedTestDependencies(ParserConfig.Builder configBuilder, Path projectRoot, 
+                                           Map<String, String> projectDependencies, Set<String> processedPaths) {
+        System.out.println("DEBUG: Starting enhanced test dependency resolution...");
+        
+        // Priority order for cache locations:
+        // 1. Project local gradle cache
+        // 2. User home gradle cache
+        Path[] cacheLocations = {
+            projectRoot.resolve(".gradle").resolve("caches").resolve("modules-2").resolve("files-2.1"),
+            Paths.get(System.getProperty("user.home")).resolve(".gradle").resolve("caches").resolve("modules-2").resolve("files-2.1")
+        };
+        
+        // Enhanced list of test dependencies with project-specific versions
+        String[][] testDeps = {
+            {"org.testng", "testng", projectDependencies.getOrDefault("testng", "org.testng:testng:7.7.1")},
+            {"junit", "junit", projectDependencies.getOrDefault("junit", "junit:junit:4.13.2")},
+            {"org.junit.jupiter", "junit-jupiter-api", "org.junit.jupiter:junit-jupiter-api:5.9.1"},
+            {"org.junit.jupiter", "junit-jupiter-engine", "org.junit.jupiter:junit-jupiter-engine:5.9.1"},
+            {"org.mockito", "mockito-core", projectDependencies.getOrDefault("mockito", "org.mockito:mockito-core:4.11.0")},
+            {"org.hamcrest", "hamcrest-all", projectDependencies.getOrDefault("hamcrest", "org.hamcrest:hamcrest-all:1.3")},
+            {"org.hamcrest", "hamcrest-core", "org.hamcrest:hamcrest-core:2.2"},
+            {"org.assertj", "assertj-core", projectDependencies.getOrDefault("assertj", "org.assertj:assertj-core:3.20.2")},
+            {"com.google.guava", "guava", projectDependencies.getOrDefault("guava", "com.google.guava:guava:33.2.1-jre")},
+            {"org.apache.commons", "commons-lang3", "org.apache.commons:commons-lang3:3.9"},
+            {"com.google.gson", "gson", "com.google.gson:gson:2.8.9"}
+        };
+        
+        for (String[] dep : testDeps) {
             String groupId = dep[0];
             String artifactId = dep[1];
+            String fullDependency = dep[2];
             
-            try {
-                findAndAddGradleDependency(configBuilder, gradleCache, groupId, artifactId, processedPaths);
-            } catch (Exception e) {
-                System.out.println("DEBUG: Error searching for " + groupId + ":" + artifactId + " in Gradle cache: " + e.getMessage());
+            System.out.println("DEBUG: Resolving test dependency: " + groupId + ":" + artifactId + " from " + fullDependency);
+            
+            // Extract version from full dependency string
+            String[] parts = fullDependency.split(":");
+            String version = parts.length > 2 ? parts[2] : null;
+            
+            boolean found = false;
+            for (Path gradleCache : cacheLocations) {
+                if (addSpecificDependency(configBuilder, gradleCache, groupId, artifactId, version, processedPaths)) {
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (!found) {
+                System.out.println("DEBUG: Could not find " + groupId + ":" + artifactId + " in any cache location");
             }
         }
     }
     
     /**
-     * Searches for a dependency in Gradle cache and adds the latest version found to classpath.
+     * Add a specific dependency from gradle cache
      */
-    private void findAndAddGradleDependency(ParserConfig.Builder configBuilder, Path gradleCache, String groupId, String artifactId, Set<String> processedPaths) {
+    private boolean addSpecificDependency(ParserConfig.Builder configBuilder, Path gradleCache, 
+                                        String groupId, String artifactId, String version, Set<String> processedPaths) {
+        if (!gradleCache.toFile().exists()) {
+            return false;
+        }
+        
         Path groupPath = gradleCache.resolve(groupId).resolve(artifactId);
         
         if (!groupPath.toFile().exists()) {
-            System.out.println("DEBUG: No versions found for " + groupId + ":" + artifactId + " in Gradle cache");
-            return;
+            return false;
         }
         
+        // If specific version is provided, try that first
+        if (version != null) {
+            Path versionDir = groupPath.resolve(version);
+            if (versionDir.toFile().exists()) {
+                File[] hashDirs = versionDir.toFile().listFiles(File::isDirectory);
+                if (hashDirs != null) {
+                    for (File hashDir : hashDirs) {
+                        String expectedJarName = artifactId + "-" + version + ".jar";
+                        File jarFile = new File(hashDir, expectedJarName);
+                        
+                        if (jarFile.exists() && !processedPaths.contains(jarFile.getAbsolutePath())) {
+                            configBuilder.classpath(jarFile.getAbsolutePath());
+                            processedPaths.add(jarFile.getAbsolutePath());
+                            System.out.println("DEBUG: Added specific version dependency: " + jarFile.getAbsolutePath());
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Fallback to latest available version
         File[] versionDirs = groupPath.toFile().listFiles(File::isDirectory);
         if (versionDirs == null || versionDirs.length == 0) {
-            System.out.println("DEBUG: No version directories found for " + groupId + ":" + artifactId);
-            return;
+            return false;
         }
         
         // Sort to get the latest version (simple string sort)
         java.util.Arrays.sort(versionDirs, (a, b) -> b.getName().compareTo(a.getName()));
         
         for (File versionDir : versionDirs) {
-            // In Gradle cache, the structure is: groupId/artifactId/version/hash/artifactId-version.jar
             File[] hashDirs = versionDir.listFiles(File::isDirectory);
             if (hashDirs != null) {
                 for (File hashDir : hashDirs) {
@@ -264,14 +481,14 @@ public class GradleDetector extends AbstractBuildToolDetector {
                     if (jarFile.exists() && !processedPaths.contains(jarFile.getAbsolutePath())) {
                         configBuilder.classpath(jarFile.getAbsolutePath());
                         processedPaths.add(jarFile.getAbsolutePath());
-                        System.out.println("DEBUG: Added common test dependency from Gradle cache: " + jarFile.getAbsolutePath());
-                        return; // Found and added, no need to check more versions
+                        System.out.println("DEBUG: Added fallback version dependency: " + jarFile.getAbsolutePath());
+                        return true;
                     }
                 }
             }
         }
         
-        System.out.println("DEBUG: No JAR files found for " + groupId + ":" + artifactId + " in Gradle cache");
+        return false;
     }
 
     private void addJdkLibraries(ParserConfig.Builder configBuilder) {
@@ -285,6 +502,62 @@ public class GradleDetector extends AbstractBuildToolDetector {
             configBuilder.classpath(rtJar.toString());
         } else if (jrtFs.toFile().exists()) {
             configBuilder.classpath(jrtFs.toString());
+        }
+    }
+
+    /**
+     * Detect Gradle version from gradle wrapper properties or gradle version command
+     */
+    private String detectGradleVersion(Path projectRoot) {
+        // Check gradle wrapper properties first
+        Path gradleWrapperProps = projectRoot.resolve("gradle").resolve("wrapper").resolve("gradle-wrapper.properties");
+        if (gradleWrapperProps.toFile().exists()) {
+            try {
+                List<String> lines = Files.readAllLines(gradleWrapperProps);
+                for (String line : lines) {
+                    if (line.contains("distributionUrl") && line.contains("gradle-")) {
+                        // Extract version from URL like: https://services.gradle.org/distributions/gradle-5.6.4-bin.zip
+                        Pattern pattern = Pattern.compile("gradle-(\\d+\\.\\d+(?:\\.\\d+)?)-");
+                        Matcher matcher = pattern.matcher(line);
+                        if (matcher.find()) {
+                            String version = matcher.group(1);
+                            System.out.println("DEBUG: Detected Gradle version from wrapper: " + version);
+                            return version;
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                System.err.println("DEBUG: Error reading gradle wrapper properties: " + e.getMessage());
+            }
+        }
+        
+        // Fallback: assume newer version if wrapper not found
+        System.out.println("DEBUG: Could not detect Gradle version, assuming compatible");
+        return "7.0"; // Default to a reasonably modern version
+    }
+    
+    /**
+     * Check if detected Gradle version is compatible with our Tooling API
+     */
+    private boolean isGradleToolingApiCompatible(String gradleVersion) {
+        try {
+            String[] versionParts = gradleVersion.split("\\.");
+            int majorVersion = Integer.parseInt(versionParts[0]);
+            int minorVersion = versionParts.length > 1 ? Integer.parseInt(versionParts[1]) : 0;
+            
+            // Our Tooling API is compatible with Gradle 6.0+
+            // For older versions (like 5.6.4), use file system detection
+            if (majorVersion >= 6) {
+                return true;
+            } else if (majorVersion == 5 && minorVersion >= 6) {
+                // Gradle 5.6+ might work, but let's be conservative
+                return false; // Can be changed to true after testing
+            }
+            
+            return false;
+        } catch (Exception e) {
+            System.err.println("DEBUG: Error parsing Gradle version: " + gradleVersion + ", error: " + e.getMessage());
+            return false; // Be conservative on parsing errors
         }
     }
 }
